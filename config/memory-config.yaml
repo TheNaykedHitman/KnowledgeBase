@@ -1,0 +1,20 @@
+version: 1
+
+memory:
+  backend: pinecone
+  mcp_server: plugged-in-mcp
+
+  namespaces:
+    strategy: "strategy-memory"
+    engineering: "engineering-memory"
+    quality: "quality-memory"
+    operations: "operations-memory"
+
+  ingestion:
+    summary_only: true
+    include_logs: true
+    include_outcomes: true
+
+  retrieval:
+    top_k: 5
+    similarity_threshold: 0.72

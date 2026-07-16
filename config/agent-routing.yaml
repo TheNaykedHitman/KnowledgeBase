@@ -1,0 +1,36 @@
+version: 1
+
+routing:
+  master_orchestrator:
+    context_dirs:
+      - contexts/strategy
+      - contexts/requirements
+      - contexts/engineering
+    purpose: "Own workflow decomposition, supervision, and delegation"
+    tools:
+      - terminal_multiplexer_control
+      - vector_memory_provider
+      - plugged_in_mcp_memory
+
+  worker_agent:
+    context_dirs:
+      - contexts/engineering
+      - contexts/quality
+    purpose: "Execute scoped tasks within isolated execution environments"
+    tools:
+      - relational_datastore
+      - vector_memory_provider
+      - plugged_in_mcp_memory
+
+  reviewer:
+    context_dirs:
+      - contexts/engineering
+      - contexts/quality
+      - contexts/standards
+    purpose: "Evaluate implementation quality and completeness"
+
+  operator:
+    context_dirs:
+      - contexts/operations
+      - contexts/deployment
+    purpose: "Handle delivery, maintenance, and runtime concerns"
