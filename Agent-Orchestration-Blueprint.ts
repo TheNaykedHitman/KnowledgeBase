@@ -69,7 +69,7 @@ export class SupervisionError extends OrchestrationError {}
 // 3. UNIVERSAL GATEWAY PROXY (SERVER-SIDE TOOL INJECTION)
 // ============================================================================
 
-class LocalGatewayProxy {
+export class LocalGatewayProxy {
     private gatewayUrl: string;
 
     constructor(endpoint: string = "http://localhost:8080/v1") {
@@ -130,7 +130,7 @@ class LocalGatewayProxy {
 // 4. MASTER ORCHESTRATOR CONTROLLER
 // ============================================================================
 
-class UniversalMasterOrchestrator {
+export class UniversalMasterOrchestrator {
     private config: AgentConfig;
     private activePanes: Map<string, MultiplexerTab> = new Map();
     private proxy: LocalGatewayProxy;
@@ -177,7 +177,9 @@ class UniversalMasterOrchestrator {
 
         // Loop execution monitoring phase
         try {
-            this.superviseActiveSwarm();
+            if (this.activePanes.size > 0) {
+                this.superviseActiveSwarm();
+            }
         } catch (error) {
             const supervisionFailure = new SupervisionError(
                 `Supervision loop failed after delegating ${delegatedPanes.length} panes.`,
@@ -252,4 +254,3 @@ class UniversalMasterOrchestrator {
     }
 }
 
-export { LocalGatewayProxy, UniversalMasterOrchestrator };

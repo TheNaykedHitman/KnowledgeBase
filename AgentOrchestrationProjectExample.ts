@@ -69,7 +69,7 @@ export class MonitoringError extends SwarmError {}
 // 3. CENTRALIZED GATEWAY & TOOL ARCHITECTURE (BIFROST)
 // ============================================================================
 
-class BifrostGateway {
+export class BifrostGateway {
     private localEndpoint: string = "http://localhost:8080/v1";
 
     /**
@@ -91,7 +91,7 @@ class BifrostGateway {
         try {
             // Bifrost server-side handles translation (e.g., translating OpenAI format to Claude format)
             const response = await this.sendToTargetLlm(payload, agent, tools);
-            console.log(`[Bifrost] Injected ${tools.length} tools for ${agent.id} -> Fetching LLM Response.`);
+            console.log(`[Bifrost] Injecting ${tools.length} tools for ${agent.id} -> Fetching LLM Response.`);
             return { agentId: agent.id, tools, response };
         } catch (error) {
             throw new GatewayError(`Bifrost routing failed for ${agent.id}.`, { cause: error });
@@ -121,7 +121,7 @@ class BifrostGateway {
 // 4. ORCHESTRATION LAYER (SUPER-BRAIN-BRIAN EXECUTION LOOP)
 // ============================================================================
 
-class SuperBrainBrian {
+export class SuperBrainBrian {
     private config: AgentConfig = {
         id: "Super-Brain-Brian",
         role: "MasterOrchestrator",
@@ -165,7 +165,9 @@ class SuperBrainBrian {
 
         // Step 3: Enter supervision loop (Reading scrollbacks via Unterm MCP)
         try {
-            this.monitorSwarmProgress();
+            if (this.activeSwarmTabs.size > 0) {
+                this.monitorSwarmProgress();
+            }
         } catch (error) {
             const monitoringFailure = new MonitoringError(
                 `Monitoring loop failed after spawning ${spawnedTabs.length} tabs.`,
@@ -239,4 +241,3 @@ class SuperBrainBrian {
     }
 }
 
-export { BifrostGateway, SuperBrainBrian };
