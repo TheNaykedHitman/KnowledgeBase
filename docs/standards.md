@@ -17,6 +17,14 @@ These standards define how this repository should evolve as a foundation for fut
 - Treat the MCP memory interface and Pinecone-backed retrieval as first-class infrastructure for continuity.
 - Separate planning, execution, review, and operations concerns intentionally.
 
+## Error handling standards
+
+- Never swallow an error: a catch block either recovers meaningfully or re-throws.
+- Re-throw with the original failure attached as `cause` and a layer-specific error type.
+- Treat an empty result as "no data", never as a failed query.
+- Aggregate per-item failures in fan-out work and surface them once the batch completes.
+- See `docs/error-handling.md` for the full rules and reference patterns.
+
 ## Agent workflow standards
 
 - Assign each task to an explicit role.
