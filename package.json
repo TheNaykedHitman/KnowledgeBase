@@ -1,0 +1,16 @@
+{
+  "name": "knowledgebase",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "2.1.8",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  }
+}
