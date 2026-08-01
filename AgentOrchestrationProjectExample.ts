@@ -38,7 +38,7 @@ export interface AgentLogEntry {
 // 2. CENTRALIZED GATEWAY & TOOL ARCHITECTURE (BIFROST)
 // ============================================================================
 
-class BifrostGateway {
+export class BifrostGateway {
     private localEndpoint: string = "http://localhost:8080/v1";
 
     /**
@@ -64,7 +64,7 @@ class BifrostGateway {
 // 3. ORCHESTRATION LAYER (SUPER-BRAIN-BRIAN EXECUTION LOOP)
 // ============================================================================
 
-class SuperBrainBrian {
+export class SuperBrainBrian {
     private config: AgentConfig = {
         id: "Super-Brain-Brian",
         role: "MasterOrchestrator",

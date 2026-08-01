@@ -38,7 +38,7 @@ export interface GlobalAgentLog {
 // 2. UNIVERSAL GATEWAY PROXY (SERVER-SIDE TOOL INJECTION)
 // ============================================================================
 
-class LocalGatewayProxy {
+export class LocalGatewayProxy {
     private gatewayUrl: string;
 
     constructor(endpoint: string = "http://localhost:8080/v1") {
@@ -70,7 +70,7 @@ class LocalGatewayProxy {
 // 3. MASTER ORCHESTRATOR CONTROLLER
 // ============================================================================
 
-class UniversalMasterOrchestrator {
+export class UniversalMasterOrchestrator {
     private config: AgentConfig;
     private activePanes: Map<string, MultiplexerTab> = new Map();
     private proxy: LocalGatewayProxy;
