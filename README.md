@@ -25,6 +25,7 @@ This repository is being shaped as a reusable foundation for a more deliberate s
 - workflows/ — reusable execution patterns
 - templates/ — prompt, task, and bootstrap templates
 - config/ — routing and orchestration configuration
+- core/ — shared orchestration primitives (entity types, gateway proxy, base orchestrator loop) that the blueprint and project examples extend
 
 ## How to use this repository
 

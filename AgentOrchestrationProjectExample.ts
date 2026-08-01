@@ -1,121 +1,56 @@
 /**
- * @file orchestration-layout.ts
- * @description Master architecture blueprint for the MKUltra Agent Swarm.
+ * @file AgentOrchestrationProjectExample.ts
+ * @description Master architecture blueprint for the MKUltra Agent Swarm: a concrete
+ * instantiation of the shared orchestration core (Bifrost gateway + Unterm multiplexer).
  * Future agents should read this file to understand the system layout and hierarchy.
  */
 
-// ============================================================================
-// 1. SYSTEM ENTITIES & INTERFACES
-// ============================================================================
+import { GatewayProxy, GatewayToolInventory } from './core/gateway';
+import { BaseOrchestrator } from './core/orchestrator';
+import { AgentConfig, DEFAULT_GATEWAY_ENDPOINT } from './core/types';
 
-export type AgentRole = 'MasterOrchestrator' | 'WorkerAgent';
-export type ModelTier = 'HighReasoning' | 'CostOptimizedAuto';
-export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'WORKAROUND_APPLIED';
+export * from './core/types';
 
-export interface AgentConfig {
-    id: string;
-    role: AgentRole;
-    modelPreset: ModelTier;
-    gatewayRoute: string; // e.g., "http://localhost:8080/v1" via Bifrost OpenAI-override
-}
+const BIFROST_TOOLS: GatewayToolInventory = {
+    core: ['sqlite_index_db', 'plugged_in_vector_memory'],
+    // Only the Brain can control terminal tabs
+    orchestratorOnly: ['unterm_multiplexer_control']
+};
 
-export interface UntermTab {
-    tabId: string;
-    label: string; // e.g., "OCR-Worker-1", "Archive-Scraper"
-    isActive: boolean;
-    currentCommand: string;
-}
-
-export interface AgentLogEntry {
-    timestamp: string;
-    agentId: string;
-    taskDescription: string;
-    status: TaskStatus;
-    notes: string; // Used to document quirky code failures, ETAs, and breaking changes
-}
-
-// ============================================================================
-// 2. CENTRALIZED GATEWAY & TOOL ARCHITECTURE (BIFROST)
-// ============================================================================
-
-class BifrostGateway {
-    private localEndpoint: string = "http://localhost:8080/v1";
-
-    /**
-     * Intercepts standard OpenAI /chat/completions payloads from Cursor,
-     * attaches context-specific MCP tools, and proxies them to the correct target LLM.
-     */
-    public async routeRequest(payload: any, agent: AgentConfig): Promise<any> {
-        const tools = this.injectMcpToolsForRole(agent.role);
-        // Bifrost server-side handles translation (e.g., translating OpenAI format to Claude format)
-        return console.log(`[Bifrost] Injecting ${tools.length} tools for ${agent.id} -> Fetching LLM Response.`);
-    }
-
-    private injectMcpToolsForRole(role: AgentRole): string[] {
-        const baseTools = ["sqlite_index_db", "plugged_in_vector_memory"];
-        if (role === 'MasterOrchestrator') {
-            return [...baseTools, "unterm_multiplexer_control"]; // Only the Brain can control terminal tabs
-        }
-        return baseTools;
+/**
+ * Intercepts standard OpenAI /chat/completions payloads from Cursor, attaches
+ * context-specific MCP tools, and proxies them to the correct target LLM.
+ */
+export class BifrostGateway extends GatewayProxy {
+    constructor(endpoint: string = DEFAULT_GATEWAY_ENDPOINT) {
+        super(BIFROST_TOOLS, 'Bifrost', endpoint);
     }
 }
 
-// ============================================================================
-// 3. ORCHESTRATION LAYER (SUPER-BRAIN-BRIAN EXECUTION LOOP)
-// ============================================================================
-
-class SuperBrainBrian {
-    private config: AgentConfig = {
-        id: "Super-Brain-Brian",
-        role: "MasterOrchestrator",
-        modelPreset: "HighReasoning",
-        gatewayRoute: "http://localhost:8080/v1"
-    };
-    
-    private activeSwarmTabs: Map<string, UntermTab> = new Map();
-    private gateway: BifrostGateway = new BifrostGateway();
+export class SuperBrainBrian extends BaseOrchestrator {
+    constructor(id: string = 'Super-Brain-Brian') {
+        const config: AgentConfig = {
+            id,
+            role: 'MasterOrchestrator',
+            modelTier: 'HighReasoning',
+            gatewayEndpoint: DEFAULT_GATEWAY_ENDPOINT
+        };
+        super(config, new BifrostGateway(config.gatewayEndpoint), 'Unterm MCP');
+    }
 
     /**
-     * High-level workflow orchestration logic
+     * Fans PDF chunks out across headless Cursor CLI agents, one per Unterm pane.
+     * Historical SQLite logs are consulted first; scrollbacks are supervised after.
      */
     public async executeProjectPipeline(pdfChunks: string[][]): Promise<void> {
-        console.log(`[${this.config.id}] Starting orchestration loop...`);
-
-        // Step 1: Query shared SQLite logs to see past context/failures before running tasks
-        const pastLogs = await this.querySharedMemory();
-
-        // Step 2: Delegate high-volume, parallel tasks via Unterm terminal multiplexing
-        pdfChunks.forEach((chunk, index) => {
-            const workerLabel = `OCR-Worker-${index + 1}`;
-            
-            // Generate the shell command to boot the headless background Cursor CLI agent
-            const command = `cursor-cli --agent "Process batch ${index + 1} using Kimi Vision OCR via /model Auto"`;
-            
-            this.spawnSubAgent(workerLabel, command);
-        });
-
-        // Step 3: Enter supervision loop (Reading scrollbacks via Unterm MCP)
-        this.monitorSwarmProgress();
+        return this.orchestrateWorkflow(pdfChunks);
     }
 
-    private spawnSubAgent(label: string, command: string): void {
-        const tabId = `tab_${Math.random().toString(36).substr(2, 9)}`;
-        
-        const newTab: UntermTab = { tabId, label, isActive: true, currentCommand: command };
-        this.activeSwarmTabs.set(tabId, newTab);
-        
-        // Execute command via Unterm MCP tool: unterm.spawn_tab()
-        console.log(`[Unterm MCP] Spawning new pane [${label}] executing: "${command}"`);
+    protected workerLabel(index: number): string {
+        return `OCR-Worker-${index + 1}`;
     }
 
-    private monitorSwarmProgress(): void {
-        // Master agent utilizes unterm.read_scrollback() or unterm.take_screenshot()
-        // to maintain full optical/textual awareness of the other active terminals.
-        console.log(`[${this.config.id}] Monitoring background tabs via visual terminal state...`);
-    }
-
-    private async querySharedMemory(): Promise<AgentLogEntry[]> {
-        // Queries index.db -> agent_logs table to pull execution context
-        return [];
+    protected workerCommand(_chunk: unknown, index: number): string {
+        return `cursor-cli --agent "Process batch ${index + 1} using Kimi Vision OCR via /model Auto"`;
     }
 }
