@@ -9,6 +9,7 @@ secrets.yaml
 
 # Local state
 node_modules/
+coverage/
 *.log
 *.db
 .DS_Store

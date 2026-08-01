@@ -68,7 +68,7 @@ function assertLoopbackOrTls(endpoint: string): void {
     }
 }
 
-class LocalGatewayProxy {
+export class LocalGatewayProxy {
     private gatewayUrl: string;
 
     constructor(endpoint: string = DEFAULT_GATEWAY_ENDPOINT) {
@@ -103,7 +103,7 @@ class LocalGatewayProxy {
 // 3. MASTER ORCHESTRATOR CONTROLLER
 // ============================================================================
 
-class UniversalMasterOrchestrator {
+export class UniversalMasterOrchestrator {
     private config: AgentConfig;
     private activePanes: Map<string, MultiplexerTab> = new Map();
     private proxy: LocalGatewayProxy;

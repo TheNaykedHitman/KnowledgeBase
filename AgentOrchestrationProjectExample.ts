@@ -48,7 +48,7 @@ export interface AgentLogEntry {
 
 const GATEWAY_ROUTE = process.env.AGENT_GATEWAY_ENDPOINT ?? "http://127.0.0.1:8080/v1";
 
-class BifrostGateway {
+export class BifrostGateway {
     private localEndpoint: string = GATEWAY_ROUTE;
 
     /**
@@ -78,7 +78,7 @@ class BifrostGateway {
 // 3. ORCHESTRATION LAYER (SUPER-BRAIN-BRIAN EXECUTION LOOP)
 // ============================================================================
 
-class SuperBrainBrian {
+export class SuperBrainBrian {
     private config: AgentConfig = {
         id: "Super-Brain-Brian",
         role: "MasterOrchestrator",
