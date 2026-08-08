@@ -7,7 +7,7 @@ export default defineConfig({
         include: ['tests/**/*.test.ts'],
         coverage: {
             provider: 'v8',
-            include: ['*.ts'],
+            include: ['*.ts', 'core/**/*.ts'],
             exclude: ['vitest.config.ts'],
             reporter: ['text', 'lcov']
         }

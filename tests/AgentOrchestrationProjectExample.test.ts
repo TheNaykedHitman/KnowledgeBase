@@ -6,6 +6,7 @@ import {
     SpawnError,
     SuperBrainBrian,
     type AgentConfig,
+    type MultiplexerTab
     type AgentLogEntry,
     type UntermTab
 } from '../AgentOrchestrationProjectExample';
@@ -13,6 +14,8 @@ import {
 const workerConfig: AgentConfig = {
     id: 'OCR-Worker-1',
     role: 'WorkerAgent',
+    modelTier: 'CostOptimizedAuto',
+    gatewayEndpoint: 'http://localhost:8080/v1'
     modelPreset: 'CostOptimizedAuto',
     gatewayRoute: 'http://127.0.0.1:8080/v1'
 };
@@ -20,6 +23,8 @@ const workerConfig: AgentConfig = {
 const masterConfig: AgentConfig = {
     id: 'Super-Brain-Brian',
     role: 'MasterOrchestrator',
+    modelTier: 'HighReasoning',
+    gatewayEndpoint: 'http://localhost:8080/v1'
     modelPreset: 'HighReasoning',
     gatewayRoute: 'http://127.0.0.1:8080/v1'
 };
@@ -41,14 +46,15 @@ afterEach(() => {
 describe('BifrostGateway', () => {
     it('injects only base tools for worker agents', () => {
         const gateway = new BifrostGateway();
-        const tools = Reflect.get(gateway, 'injectMcpToolsForRole').call(gateway, 'WorkerAgent');
-        expect(tools).toEqual(['sqlite_index_db', 'plugged_in_vector_memory']);
+        expect(gateway.resolveMcpTools('WorkerAgent')).toEqual([
+            'sqlite_index_db',
+            'plugged_in_vector_memory'
+        ]);
     });
 
     it('grants multiplexer control only to the master orchestrator', () => {
         const gateway = new BifrostGateway();
-        const tools = Reflect.get(gateway, 'injectMcpToolsForRole').call(gateway, 'MasterOrchestrator');
-        expect(tools).toEqual([
+        expect(gateway.resolveMcpTools('MasterOrchestrator')).toEqual([
             'sqlite_index_db',
             'plugged_in_vector_memory',
             'unterm_multiplexer_control'
@@ -74,6 +80,14 @@ describe('BifrostGateway', () => {
             }
         }
 
+        await gateway.proxyCompletion({ messages: [] }, workerConfig);
+        expect(logSpy).toHaveBeenCalledWith(
+            '[Bifrost] Proxied payload for OCR-Worker-1 via http://localhost:8080/v1. Injected 2 server-side tools.'
+        );
+
+        await gateway.proxyCompletion({ messages: [] }, masterConfig);
+        expect(logSpy).toHaveBeenCalledWith(
+            '[Bifrost] Proxied payload for Super-Brain-Brian via http://localhost:8080/v1. Injected 3 server-side tools.'
         await expect(new FailingGateway().routeRequest({}, workerConfig)).rejects.toMatchObject({
             name: 'GatewayError',
             cause: upstream
@@ -116,7 +130,7 @@ describe('BifrostGateway', () => {
 
 describe('SuperBrainBrian', () => {
     const tabs = (brain: SuperBrainBrian) =>
-        Reflect.get(brain, 'activeSwarmTabs') as Map<string, UntermTab>;
+        Reflect.get(brain, 'activePanes') as Map<string, MultiplexerTab>;
 
     it('is configured as a high reasoning master orchestrator', () => {
         expect(Reflect.get(new SuperBrainBrian(), 'config')).toEqual(masterConfig);
@@ -154,6 +168,8 @@ describe('SuperBrainBrian', () => {
         });
 
         expect(tabs(brain).size).toBe(0);
+        expect(logSpy).toHaveBeenCalledWith(
+            '[Super-Brain-Brian] Supervising 0 pipelines via multiplexer scrollback analysis.'
         expect(logSpy).not.toHaveBeenCalledWith(
             '[Super-Brain-Brian] Monitoring background tabs via visual terminal state...'
         );
@@ -173,7 +189,7 @@ describe('SuperBrainBrian', () => {
 
     it('returns no shared memory entries before any run', async () => {
         const brain = new SuperBrainBrian();
-        await expect(Reflect.get(brain, 'querySharedMemory').call(brain)).resolves.toEqual([]);
+        await expect(Reflect.get(brain, 'fetchGlobalLogs').call(brain)).resolves.toEqual([]);
     });
 
     it('surfaces an agent_logs failure as a SharedMemoryError instead of an empty history', async () => {

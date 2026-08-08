@@ -56,14 +56,15 @@ describe('LocalGatewayProxy', () => {
 
     it('resolves core tools only for worker agents', () => {
         const proxy = new LocalGatewayProxy();
-        const tools = Reflect.get(proxy, 'resolveMcpTools').call(proxy, 'WorkerAgent');
-        expect(tools).toEqual(['relational_datastore', 'vector_memory_provider']);
+        expect(proxy.resolveMcpTools('WorkerAgent')).toEqual([
+            'relational_datastore',
+            'vector_memory_provider'
+        ]);
     });
 
     it('adds multiplexer control for the master orchestrator', () => {
         const proxy = new LocalGatewayProxy();
-        const tools = Reflect.get(proxy, 'resolveMcpTools').call(proxy, 'MasterOrchestrator');
-        expect(tools).toEqual([
+        expect(proxy.resolveMcpTools('MasterOrchestrator')).toEqual([
             'relational_datastore',
             'vector_memory_provider',
             'terminal_multiplexer_control'
@@ -109,11 +110,13 @@ describe('LocalGatewayProxy', () => {
         });
         await expect(proxy.proxyCompletion(payload, workerConfig)).resolves.toEqual({});
         expect(logSpy).toHaveBeenCalledWith(
+            '[Gateway] Proxied payload for Worker-1 via http://localhost:8080/v1. Injected 2 server-side tools.'
             '[Gateway] Proxied payload for Worker-1 to http://127.0.0.1:8080/v1. Injected 2 server-side tools with 1 auth header(s).'
         );
 
         await proxy.proxyCompletion(payload, masterConfig);
         expect(logSpy).toHaveBeenCalledWith(
+            '[Gateway] Proxied payload for Master-1 via http://localhost:8080/v1. Injected 3 server-side tools.'
             '[Gateway] Proxied payload for Master-1 to http://127.0.0.1:8080/v1. Injected 3 server-side tools with 1 auth header(s).'
         );
     });
@@ -194,6 +197,8 @@ describe('UniversalMasterOrchestrator', () => {
         });
 
         expect(panes(orchestrator).size).toBe(0);
+        expect(logSpy).toHaveBeenCalledWith(
+            '[Master-Orchestrator-Brain] Supervising 0 pipelines via multiplexer scrollback analysis.'
         expect(logSpy).not.toHaveBeenCalledWith(
             '[Master-Orchestrator-Brain] Supervising active pipelines via terminal multiplexer scrollback analysis.'
         );
