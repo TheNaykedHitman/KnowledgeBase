@@ -1,2 +1,15 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# Local state
 node_modules/
 coverage/
+*.log
+*.db
+.DS_Store

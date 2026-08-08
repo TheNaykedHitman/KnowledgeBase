@@ -25,6 +25,16 @@ These standards define how this repository should evolve as a foundation for fut
 - Use templates to reduce ambiguity.
 - Treat the gateway and multiplexer as part of the system design, not as afterthoughts.
 
+## Security standards
+
+- Never commit credentials. Pinecone, MCP, and gateway keys are read from the environment (`AGENT_GATEWAY_API_KEY`, `AGENT_GATEWAY_ENDPOINT`) at call time and are excluded from version control via `.gitignore`.
+- Require authentication on every gateway call; a missing key is a hard failure, not a fallback to an unauthenticated request.
+- Bind the gateway to loopback. Any non-loopback endpoint must use TLS.
+- Build sub-agent commands as argv arrays, never as interpolated shell strings, so task-derived values cannot be interpreted by a shell.
+- Use `crypto.randomUUID()` for identifiers; `Math.random()` is not suitable for anything that gates access or must be unguessable.
+- Treat model payloads as untrusted input: type them explicitly, validate before forwarding, and keep their contents out of logs.
+- Scope MCP tool grants by role and re-check the role server-side rather than trusting the client-supplied payload.
+
 ## Project standards
 
 - Maintain a predictable folder structure.

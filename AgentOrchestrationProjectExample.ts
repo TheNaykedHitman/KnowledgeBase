@@ -4,6 +4,8 @@
  * Future agents should read this file to understand the system layout and hierarchy.
  */
 
+import { randomUUID } from 'node:crypto';
+
 // ============================================================================
 // 1. SYSTEM ENTITIES & INTERFACES
 // ============================================================================
@@ -16,14 +18,20 @@ export interface AgentConfig {
     id: string;
     role: AgentRole;
     modelPreset: ModelTier;
-    gatewayRoute: string; // e.g., "http://localhost:8080/v1" via Bifrost OpenAI-override
+    gatewayRoute: string; // e.g., "http://127.0.0.1:8080/v1" via Bifrost OpenAI-override
+}
+
+export interface CompletionPayload {
+    model: string;
+    messages: Array<{ role: string; content: string }>;
+    tools?: string[];
 }
 
 export interface UntermTab {
     tabId: string;
     label: string; // e.g., "OCR-Worker-1", "Archive-Scraper"
     isActive: boolean;
-    currentCommand: string;
+    currentCommand: string[]; // argv form, never a shell string
 }
 
 export interface AgentLogEntry {
@@ -38,17 +46,23 @@ export interface AgentLogEntry {
 // 2. CENTRALIZED GATEWAY & TOOL ARCHITECTURE (BIFROST)
 // ============================================================================
 
+const GATEWAY_ROUTE = process.env.AGENT_GATEWAY_ENDPOINT ?? "http://127.0.0.1:8080/v1";
+
 export class BifrostGateway {
-    private localEndpoint: string = "http://localhost:8080/v1";
+    private localEndpoint: string = GATEWAY_ROUTE;
 
     /**
      * Intercepts standard OpenAI /chat/completions payloads from Cursor,
      * attaches context-specific MCP tools, and proxies them to the correct target LLM.
      */
-    public async routeRequest(payload: any, agent: AgentConfig): Promise<any> {
+    public async routeRequest(payload: CompletionPayload, agent: AgentConfig): Promise<void> {
+        const apiKey = process.env.AGENT_GATEWAY_API_KEY;
+        if (!apiKey) {
+            throw new Error("AGENT_GATEWAY_API_KEY is not set; refusing to call the gateway unauthenticated.");
+        }
         const tools = this.injectMcpToolsForRole(agent.role);
         // Bifrost server-side handles translation (e.g., translating OpenAI format to Claude format)
-        return console.log(`[Bifrost] Injecting ${tools.length} tools for ${agent.id} -> Fetching LLM Response.`);
+        console.log(`[Bifrost] Injecting ${tools.length} tools for ${agent.id} -> Fetching LLM Response from ${this.localEndpoint}.`);
     }
 
     private injectMcpToolsForRole(role: AgentRole): string[] {
@@ -69,7 +83,7 @@ export class SuperBrainBrian {
         id: "Super-Brain-Brian",
         role: "MasterOrchestrator",
         modelPreset: "HighReasoning",
-        gatewayRoute: "http://localhost:8080/v1"
+        gatewayRoute: GATEWAY_ROUTE
     };
     
     private activeSwarmTabs: Map<string, UntermTab> = new Map();
@@ -88,8 +102,12 @@ export class SuperBrainBrian {
         pdfChunks.forEach((chunk, index) => {
             const workerLabel = `OCR-Worker-${index + 1}`;
             
-            // Generate the shell command to boot the headless background Cursor CLI agent
-            const command = `cursor-cli --agent "Process batch ${index + 1} using Kimi Vision OCR via /model Auto"`;
+            // argv form keeps chunk-derived values out of shell interpretation
+            const command = [
+                "cursor-cli",
+                "--agent",
+                `Process batch ${index + 1} using Kimi Vision OCR via /model Auto`
+            ];
             
             this.spawnSubAgent(workerLabel, command);
         });
@@ -98,14 +116,14 @@ export class SuperBrainBrian {
         this.monitorSwarmProgress();
     }
 
-    private spawnSubAgent(label: string, command: string): void {
-        const tabId = `tab_${Math.random().toString(36).substr(2, 9)}`;
+    private spawnSubAgent(label: string, command: string[]): void {
+        const tabId = `tab_${randomUUID()}`;
         
         const newTab: UntermTab = { tabId, label, isActive: true, currentCommand: command };
         this.activeSwarmTabs.set(tabId, newTab);
         
         // Execute command via Unterm MCP tool: unterm.spawn_tab()
-        console.log(`[Unterm MCP] Spawning new pane [${label}] executing: "${command}"`);
+        console.log(`[Unterm MCP] Spawning new pane [${label}] executing: ${JSON.stringify(command)}`);
     }
 
     private monitorSwarmProgress(): void {
