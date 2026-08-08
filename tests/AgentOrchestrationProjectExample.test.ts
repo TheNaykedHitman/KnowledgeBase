@@ -14,24 +14,28 @@ const workerConfig: AgentConfig = {
     id: 'OCR-Worker-1',
     role: 'WorkerAgent',
     modelPreset: 'CostOptimizedAuto',
-    gatewayRoute: 'http://localhost:8080/v1'
+    gatewayRoute: 'http://127.0.0.1:8080/v1'
 };
 
 const masterConfig: AgentConfig = {
     id: 'Super-Brain-Brian',
     role: 'MasterOrchestrator',
     modelPreset: 'HighReasoning',
-    gatewayRoute: 'http://localhost:8080/v1'
+    gatewayRoute: 'http://127.0.0.1:8080/v1'
 };
+
+const payload = { model: 'test-model', messages: [] };
 
 let logSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubEnv('AGENT_GATEWAY_API_KEY', 'test-key');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
 });
 
 describe('BifrostGateway', () => {
@@ -89,13 +93,23 @@ describe('BifrostGateway', () => {
             tools: ['sqlite_index_db', 'plugged_in_vector_memory'],
             response: { ok: true }
         });
+        await gateway.routeRequest(payload, workerConfig);
         expect(logSpy).toHaveBeenCalledWith(
-            '[Bifrost] Injecting 2 tools for OCR-Worker-1 -> Fetching LLM Response.'
+            '[Bifrost] Injecting 2 tools for OCR-Worker-1 -> Fetching LLM Response from http://127.0.0.1:8080/v1.'
         );
 
-        await gateway.routeRequest({ messages: [] }, masterConfig);
+        await gateway.routeRequest(payload, masterConfig);
         expect(logSpy).toHaveBeenCalledWith(
-            '[Bifrost] Injecting 3 tools for Super-Brain-Brian -> Fetching LLM Response.'
+            '[Bifrost] Injecting 3 tools for Super-Brain-Brian -> Fetching LLM Response from http://127.0.0.1:8080/v1.'
+        );
+    });
+
+    it('refuses to route without a gateway api key', async () => {
+        vi.stubEnv('AGENT_GATEWAY_API_KEY', '');
+        const gateway = new BifrostGateway();
+
+        await expect(gateway.routeRequest(payload, workerConfig)).rejects.toThrow(
+            /AGENT_GATEWAY_API_KEY is not set/
         );
     });
 });
@@ -114,9 +128,11 @@ describe('SuperBrainBrian', () => {
 
         const spawned = [...tabs(brain).values()];
         expect(spawned.map((tab) => tab.label)).toEqual(['OCR-Worker-1', 'OCR-Worker-2']);
-        expect(spawned[1].currentCommand).toBe(
-            'cursor-cli --agent "Process batch 2 using Kimi Vision OCR via /model Auto"'
-        );
+        expect(spawned[1].currentCommand).toEqual([
+            'cursor-cli',
+            '--agent',
+            'Process batch 2 using Kimi Vision OCR via /model Auto'
+        ]);
         expect(spawned.every((tab) => tab.isActive)).toBe(true);
     });
 
@@ -126,7 +142,7 @@ describe('SuperBrainBrian', () => {
 
         for (const [tabId, tab] of tabs(brain)) {
             expect(tabId).toBe(tab.tabId);
-            expect(tabId).toMatch(/^tab_[0-9a-z]+$/);
+            expect(tabId).toMatch(/^tab_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
         }
     });
 

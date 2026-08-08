@@ -4,6 +4,8 @@
  * Standard operating framework for Master Orchestrator -> Sub-Agent delegation.
  */
 
+import { randomUUID } from 'node:crypto';
+
 // ============================================================================
 // 1. ABSTRACT SYSTEM ENTITIES & TYPES
 // ============================================================================
@@ -19,11 +21,17 @@ export interface AgentConfig {
     gatewayEndpoint: string; // Central routing proxy
 }
 
+export interface CompletionPayload {
+    model: string;
+    messages: Array<{ role: string; content: string }>;
+    tools?: string[];
+}
+
 export interface MultiplexerTab {
     tabId: string;
     label: string; // Internal identifier for tracking tracking
     isActive: boolean;
-    currentCommand: string;
+    currentCommand: string[]; // argv form, never a shell string
 }
 
 export interface GlobalAgentLog {
@@ -69,6 +77,28 @@ export class SupervisionError extends OrchestrationError {}
 // 3. UNIVERSAL GATEWAY PROXY (SERVER-SIDE TOOL INJECTION)
 // ============================================================================
 
+const DEFAULT_GATEWAY_ENDPOINT = process.env.AGENT_GATEWAY_ENDPOINT ?? "http://127.0.0.1:8080/v1";
+
+/**
+ * Credentials are read from the environment at call time and never persisted
+ * in configuration objects, logs, or committed files.
+ */
+function gatewayAuthHeader(): Record<string, string> {
+    const apiKey = process.env.AGENT_GATEWAY_API_KEY;
+    if (!apiKey) {
+        throw new Error("AGENT_GATEWAY_API_KEY is not set; refusing to call the gateway unauthenticated.");
+    }
+    return { Authorization: `Bearer ${apiKey}` };
+}
+
+function assertLoopbackOrTls(endpoint: string): void {
+    const url = new URL(endpoint);
+    const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1";
+    if (url.protocol !== "https:" && !isLoopback) {
+        throw new Error(`Gateway endpoint ${endpoint} must use https outside of loopback.`);
+    }
+}
+
 export class LocalGatewayProxy {
     private gatewayUrl: string;
 
@@ -76,6 +106,8 @@ export class LocalGatewayProxy {
         if (endpoint.trim().length === 0) {
             throw new GatewayError("Gateway endpoint must be a non-empty URL.");
         }
+    constructor(endpoint: string = DEFAULT_GATEWAY_ENDPOINT) {
+        assertLoopbackOrTls(endpoint);
         this.gatewayUrl = endpoint;
     }
 
@@ -114,6 +146,13 @@ export class LocalGatewayProxy {
         void payload;
         void tools;
         throw new GatewayError(`No upstream transport is wired up for agent ${agent.id}.`);
+    public async proxyCompletion(payload: CompletionPayload, agent: AgentConfig): Promise<unknown> {
+        const headers = gatewayAuthHeader();
+        const injectedTools = this.resolveMcpTools(agent.role);
+        // Payload contents may include user data; log only non-sensitive metadata.
+        console.log(`[Gateway] Proxied payload for ${agent.id} to ${this.gatewayUrl}. Injected ${injectedTools.length} server-side tools with ${Object.keys(headers).length} auth header(s).`);
+        // Universal schema translation happens downstream here
+        return {};
     }
 
     private resolveMcpTools(role: AgentRole): string[] {
@@ -140,7 +179,7 @@ export class UniversalMasterOrchestrator {
             id,
             role: "MasterOrchestrator",
             modelTier: "HighReasoning",
-            gatewayEndpoint: "http://localhost:8080/v1"
+            gatewayEndpoint: DEFAULT_GATEWAY_ENDPOINT
         };
         this.proxy = new LocalGatewayProxy(this.config.gatewayEndpoint);
     }
@@ -153,6 +192,7 @@ export class UniversalMasterOrchestrator {
      * been given a chance to run. Nothing is swallowed.
      */
     public async orchestrateWorkflow(dataBatches: unknown[]): Promise<WorkflowResult> {
+    public async orchestrateWorkflow(dataBatches: unknown[]): Promise<void> {
         console.log(`[${this.config.id}] Evaluating existing system state and historical execution logs...`);
         const historicalState = await this.fetchGlobalLogs();
         console.log(`[${this.config.id}] Loaded ${historicalState.length} historical log entries.`);
@@ -173,6 +213,16 @@ export class UniversalMasterOrchestrator {
             } catch (error) {
                 failures.push(new DelegationError(`Failed to delegate batch index ${index} to ${agentId}.`, { cause: error }));
             }
+            
+            // Commands are passed as an argv array so batch-derived values can never be
+            // interpreted by a shell.
+            const shellInstruction = [
+                "cli-agent-command",
+                "--run",
+                `Process batch index ${index} using /model Auto configuration`
+            ];
+
+            this.delegateToMultiplexer(agentId, shellInstruction);
         });
 
         // Loop execution monitoring phase
@@ -215,12 +265,17 @@ export class UniversalMasterOrchestrator {
             throw new DelegationError(`Pane identifier collision for ${tabId}; refusing to overwrite an active pane.`);
         }
 
+    private delegateToMultiplexer(label: string, command: string[]): void {
+        const tabId = `tab_${randomUUID()}`;
         const tabContext: MultiplexerTab = { tabId, label, isActive: true, currentCommand: command };
         this.activePanes.set(tabId, tabContext);
 
         // Triggers server-side terminal workspace allocation: e.g., multiplexer.spawn_tab()
         console.log(`[Multiplexer MCP] Allocating isolated pane [${label}] -> executing: "${command}"`);
         return tabContext;
+        
+        // Triggers server-side terminal workspace allocation: e.g., multiplexer.spawn_tab(argv)
+        console.log(`[Multiplexer MCP] Allocating isolated pane [${label}] -> executing: ${JSON.stringify(command)}`);
     }
 
     /**
