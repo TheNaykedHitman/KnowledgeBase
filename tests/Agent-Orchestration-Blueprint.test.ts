@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+    DelegationError,
+    GatewayError,
     LocalGatewayProxy,
+    MemoryError,
+    SupervisionError,
     UniversalMasterOrchestrator,
     type AgentConfig,
+    type GlobalAgentLog,
     type MultiplexerTab
 } from '../Agent-Orchestration-Blueprint';
 
@@ -65,9 +70,43 @@ describe('LocalGatewayProxy', () => {
         ]);
     });
 
-    it('proxies a completion and logs the injected tool count per role', async () => {
-        const proxy = new LocalGatewayProxy();
+    it('rejects an endpoint mismatch instead of proxying', async () => {
+        const proxy = new LocalGatewayProxy('https://gateway.example.com/v1');
+        await expect(proxy.proxyCompletion({ messages: [] }, workerConfig)).rejects.toBeInstanceOf(GatewayError);
+    });
 
+    it('rejects with a GatewayError when no upstream transport is wired up', async () => {
+        const proxy = new LocalGatewayProxy();
+        await expect(proxy.proxyCompletion({ messages: [] }, workerConfig)).rejects.toBeInstanceOf(GatewayError);
+    });
+
+    it('wraps an upstream failure and keeps the original cause', async () => {
+        const upstream = new Error('socket hang up');
+        class FailingProxy extends LocalGatewayProxy {
+            protected override async forwardToUpstream(): Promise<unknown> {
+                throw upstream;
+            }
+        }
+
+        await expect(new FailingProxy().proxyCompletion({}, workerConfig)).rejects.toMatchObject({
+            name: 'GatewayError',
+            cause: upstream
+        });
+    });
+
+    it('returns the completion and logs the injected tool count per role', async () => {
+        class WiredProxy extends LocalGatewayProxy {
+            protected override async forwardToUpstream(): Promise<unknown> {
+                return { ok: true };
+            }
+        }
+        const proxy = new WiredProxy();
+
+        await expect(proxy.proxyCompletion({ messages: [] }, workerConfig)).resolves.toEqual({
+            agentId: 'Worker-1',
+            injectedTools: ['relational_datastore', 'vector_memory_provider'],
+            response: { ok: true }
+        });
         await expect(proxy.proxyCompletion(payload, workerConfig)).resolves.toEqual({});
         expect(logSpy).toHaveBeenCalledWith(
             '[Gateway] Proxied payload for Worker-1 to http://127.0.0.1:8080/v1. Injected 2 server-side tools with 1 auth header(s).'
@@ -147,18 +186,53 @@ describe('UniversalMasterOrchestrator', () => {
         }
     });
 
-    it('allocates no panes for an empty batch list but still supervises', async () => {
+    it('allocates no panes for an empty batch list and skips supervision', async () => {
         const orchestrator = new UniversalMasterOrchestrator();
-        await orchestrator.orchestrateWorkflow([]);
+        await expect(orchestrator.orchestrateWorkflow([])).resolves.toEqual({
+            delegatedPanes: [],
+            historicalLogCount: 0
+        });
 
         expect(panes(orchestrator).size).toBe(0);
-        expect(logSpy).toHaveBeenCalledWith(
+        expect(logSpy).not.toHaveBeenCalledWith(
             '[Master-Orchestrator-Brain] Supervising active pipelines via terminal multiplexer scrollback analysis.'
         );
+    });
+
+    it('rejects a pane without a label or command', () => {
+        const orchestrator = new UniversalMasterOrchestrator();
+        const delegate = Reflect.get(orchestrator, 'delegateToMultiplexer') as (label: string, command: string) => MultiplexerTab;
+        expect(() => delegate.call(orchestrator, '  ', 'run')).toThrow(DelegationError);
+    });
+
+    it('refuses to supervise when no panes are allocated', () => {
+        const orchestrator = new UniversalMasterOrchestrator();
+        const supervise = Reflect.get(orchestrator, 'superviseActiveSwarm') as () => void;
+        expect(() => supervise.call(orchestrator)).toThrow(SupervisionError);
     });
 
     it('starts with no historical logs', async () => {
         const orchestrator = new UniversalMasterOrchestrator();
         await expect(Reflect.get(orchestrator, 'fetchGlobalLogs').call(orchestrator)).resolves.toEqual([]);
+    });
+
+    it('surfaces a log store failure as a MemoryError instead of an empty history', async () => {
+        const dbFailure = new Error('index.db is locked');
+        class BrokenMemoryOrchestrator extends UniversalMasterOrchestrator {
+            protected override async readLogStore(): Promise<GlobalAgentLog[]> {
+                throw dbFailure;
+            }
+        }
+
+        const orchestrator = new BrokenMemoryOrchestrator();
+        await expect(orchestrator.orchestrateWorkflow([{}])).rejects.toMatchObject({
+            name: 'MemoryError',
+            cause: dbFailure
+        });
+        expect(panes(orchestrator).size).toBe(0);
+    });
+
+    it('exposes MemoryError as part of the error taxonomy', () => {
+        expect(new MemoryError('boom')).toBeInstanceOf(Error);
     });
 });

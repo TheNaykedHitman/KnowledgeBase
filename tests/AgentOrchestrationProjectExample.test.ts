@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
     BifrostGateway,
+    GatewayError,
+    MonitoringError,
+    SpawnError,
     SuperBrainBrian,
     type AgentConfig,
+    type AgentLogEntry,
     type UntermTab
 } from '../AgentOrchestrationProjectExample';
 
@@ -51,9 +55,44 @@ describe('BifrostGateway', () => {
         ]);
     });
 
-    it('logs the injected tool count when routing a request', async () => {
+    it('rejects with a GatewayError when no Bifrost transport is configured', async () => {
         const gateway = new BifrostGateway();
+        await expect(gateway.routeRequest({ messages: [] }, workerConfig)).rejects.toBeInstanceOf(GatewayError);
+    });
 
+    it('rejects a request whose agent routes elsewhere', async () => {
+        const gateway = new BifrostGateway();
+        const strayAgent: AgentConfig = { ...workerConfig, gatewayRoute: 'https://elsewhere.example.com/v1' };
+        await expect(gateway.routeRequest({}, strayAgent)).rejects.toBeInstanceOf(GatewayError);
+    });
+
+    it('wraps an upstream failure and keeps the original cause', async () => {
+        const upstream = new Error('502 from target LLM');
+        class FailingGateway extends BifrostGateway {
+            protected override async sendToTargetLlm(): Promise<unknown> {
+                throw upstream;
+            }
+        }
+
+        await expect(new FailingGateway().routeRequest({}, workerConfig)).rejects.toMatchObject({
+            name: 'GatewayError',
+            cause: upstream
+        });
+    });
+
+    it('logs the injected tool count when routing a request', async () => {
+        class WiredGateway extends BifrostGateway {
+            protected override async sendToTargetLlm(): Promise<unknown> {
+                return { ok: true };
+            }
+        }
+        const gateway = new WiredGateway();
+
+        await expect(gateway.routeRequest({ messages: [] }, workerConfig)).resolves.toEqual({
+            agentId: 'OCR-Worker-1',
+            tools: ['sqlite_index_db', 'plugged_in_vector_memory'],
+            response: { ok: true }
+        });
         await gateway.routeRequest(payload, workerConfig);
         expect(logSpy).toHaveBeenCalledWith(
             '[Bifrost] Injecting 2 tools for OCR-Worker-1 -> Fetching LLM Response from http://127.0.0.1:8080/v1.'
@@ -107,18 +146,49 @@ describe('SuperBrainBrian', () => {
         }
     });
 
-    it('spawns nothing for an empty pipeline but still monitors', async () => {
+    it('spawns nothing for an empty pipeline and skips monitoring', async () => {
         const brain = new SuperBrainBrian();
-        await brain.executeProjectPipeline([]);
+        await expect(brain.executeProjectPipeline([])).resolves.toEqual({
+            spawnedTabs: [],
+            priorLogCount: 0
+        });
 
         expect(tabs(brain).size).toBe(0);
-        expect(logSpy).toHaveBeenCalledWith(
+        expect(logSpy).not.toHaveBeenCalledWith(
             '[Super-Brain-Brian] Monitoring background tabs via visual terminal state...'
         );
+    });
+
+    it('rejects a sub-agent without a label or command', () => {
+        const brain = new SuperBrainBrian();
+        const spawn = Reflect.get(brain, 'spawnSubAgent') as (label: string, command: string) => UntermTab;
+        expect(() => spawn.call(brain, 'OCR-Worker-1', '   ')).toThrow(SpawnError);
+    });
+
+    it('refuses to monitor when no tabs are active', () => {
+        const brain = new SuperBrainBrian();
+        const monitor = Reflect.get(brain, 'monitorSwarmProgress') as () => void;
+        expect(() => monitor.call(brain)).toThrow(MonitoringError);
     });
 
     it('returns no shared memory entries before any run', async () => {
         const brain = new SuperBrainBrian();
         await expect(Reflect.get(brain, 'querySharedMemory').call(brain)).resolves.toEqual([]);
+    });
+
+    it('surfaces an agent_logs failure as a SharedMemoryError instead of an empty history', async () => {
+        const dbFailure = new Error('index.db is locked');
+        class BrokenMemoryBrain extends SuperBrainBrian {
+            protected override async readAgentLogTable(): Promise<AgentLogEntry[]> {
+                throw dbFailure;
+            }
+        }
+
+        const brain = new BrokenMemoryBrain();
+        await expect(brain.executeProjectPipeline([['page-1']])).rejects.toMatchObject({
+            name: 'SharedMemoryError',
+            cause: dbFailure
+        });
+        expect(tabs(brain).size).toBe(0);
     });
 });
